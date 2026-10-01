@@ -931,6 +931,8 @@ function getPlayerId(){
 }
 function getPlayerName(){return (localStorage.getItem("dlicomPlayerName")||"Player").trim().slice(0,18)||"Player"}
 function getLastSyncedName(){return (localStorage.getItem("dlicomLastSyncedName")||"").trim().slice(0,18)}
+function getOwnedNames(){try{return JSON.parse(localStorage.getItem("dlicomOwnedNames")||"[]").filter(Boolean).map(normalizePlayerName)}catch(_){return []}}
+function rememberOwnedName(name){const clean=normalizePlayerName(name);if(!clean)return;const arr=getOwnedNames();if(!arr.some(n=>nameKey(n)===nameKey(clean)))arr.push(clean);localStorage.setItem("dlicomOwnedNames",JSON.stringify(arr.slice(-30)));}
 function syncHomePlayerName(){
  const el=document.getElementById("homePlayerName");
  if(el)el.value=getPlayerName()==="Player"?"":getPlayerName();
@@ -945,8 +947,10 @@ async function isNameAvailable(name){
  const lastName=getLastSyncedName();
  // A name already stored locally belongs to this browser/player. This also
  // recovers names created by older deployments that used a different player id.
+ const ownedNames=getOwnedNames();
  const isMyStoredName=(nameKey(clean)===nameKey(lastName)&&!!lastName) ||
-                      (nameKey(clean)===nameKey(currentName)&&currentName!=="Player");
+                      (nameKey(clean)===nameKey(currentName)&&currentName!=="Player") ||
+                      ownedNames.some(n=>nameKey(n)===nameKey(clean));
  if(!GLOBAL_LEADERBOARD){
    let rows=[];try{rows=JSON.parse(localStorage.getItem("dlicomScores")||"[]")}catch(_){rows=[]}
    return !(rows||[]).some(r=>nameKey(r.name)===nameKey(clean)&&r.player_id!==myId&&!isMyStoredName);
@@ -971,6 +975,7 @@ async function setPlayerName(name,source){
  if(nameKey(clean)===nameKey(oldName)){
    localStorage.setItem("dlicomPlayerName",clean);
    localStorage.setItem("dlicomLastSyncedName",clean);
+   rememberOwnedName(clean);
    const el=document.getElementById(source==="home"?"homePlayerName":"playerName");if(el)el.value=clean;
    renderLeaderboard();syncHomePlayerName();showFX("NAME SAVED");
    return true;
@@ -988,7 +993,8 @@ async function setPlayerName(name,source){
      // created a different ID, fall back to this browser's last synced name.
      let mine=await sbFetch("dlicom_scores?select=id%2Cplayer_id%2Cname%2Cscore&player_id=eq."+encodeURIComponent(playerId)+"&order=score.desc&limit=1");
      if(!mine?.[0]){
-       const legacyName=getLastSyncedName() || (oldName!=="Player"?oldName:"");
+       const ownedNames=getOwnedNames();
+       const legacyName=getLastSyncedName() || (oldName!=="Player"?oldName:"") || (ownedNames[ownedNames.length-1]||"");
        if(legacyName){
          const legacy=await sbFetch("dlicom_scores?select=id%2Cplayer_id%2Cname%2Cscore&name=eq."+encodeURIComponent(legacyName)+"&order=score.desc&limit=1");
          if(legacy?.[0] && nameKey(legacy[0].name)===nameKey(legacyName)) mine=legacy;
