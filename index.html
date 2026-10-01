@@ -530,7 +530,7 @@ let W=innerWidth,H=innerHeight,dpr=1;
 let running=false,paused=false,score=0,lives=3,bestScore=Number(localStorage.getItem('dlicomBest')||0),slicedCount=0,bonusLives=0;
 const rand=(a,b)=>a+Math.random()*(b-a);
 const pick=a=>a[(Math.random()*a.length)|0];
-let objs=[],parts=[],slashes=[],trail=[],spawnClock=.15,combo=0,comboClock=0,last=0,down=false,lastP=null,lastStart=0;
+let objs=[],parts=[],slashes=[],trail=[],spawnClock=.15,combo=0,comboClock=0,last=0,down=false,lastP=null,lastStart=0,activePointerId=null;
 let trailColor="#2f6bff",trailName="BLUE ENERGY",trailFlash=0;
 let selectedTrailId=localStorage.getItem("dlicomTrail")||"blue";
 let bestCombo=Number(localStorage.getItem("dlicomBestCombo")||0);
@@ -720,16 +720,25 @@ function slice(a,b){
  }
 }
 canvas.addEventListener("pointerdown",e=>{
- if(!running||paused)return;down=true;lastP=ppos(e); trail.push({x:lastP.x,y:lastP.y,life:1});
- try{canvas.setPointerCapture(e.pointerId)}catch(_){
- }
+ if(!running||paused)return;
+ // One active pointer only: prevents multi-touch from creating multiple trails.
+ if(activePointerId!==null)return;
+ if(e.pointerType==="touch" && e.isPrimary===false)return; activePointerId=e.pointerId;down=true;lastP=ppos(e);trail=[];trail.push({x:lastP.x,y:lastP.y,life:1});
+ try{canvas.setPointerCapture(e.pointerId)}catch(_){}
 });
 canvas.addEventListener("pointermove",e=>{
- if(!down||!running||paused)return;const p=ppos(e);
- if(lastP){slice(lastP,p);if(slashes.length<28)slashes.push({a:lastP,b:p,life:1}); if(trail.length<80)trail.push({x:p.x,y:p.y,life:1});}lastP=p;
+ if(!down||activePointerId!==e.pointerId||!running||paused)return;
+ const p=ppos(e);
+ if(lastP){slice(lastP,p);}
+ if(trail.length>=7)trail.shift();
+ trail.push({x:p.x,y:p.y,life:1});
+ lastP=p;
 });
-function up(){down=false;lastP=null}
-canvas.addEventListener("pointerup",up);canvas.addEventListener("pointercancel",up);canvas.addEventListener("pointerleave",up);
+function up(e){
+ if(activePointerId!==null && e.pointerId!==activePointerId)return;
+ down=false;lastP=null;activePointerId=null;
+}
+canvas.addEventListener("pointerup",up);canvas.addEventListener("pointercancel",up);
 
 function update(dt){
  if(!running||paused)return;
@@ -796,7 +805,7 @@ function update(dt){
  parts=parts.filter(p=>p.life>0);
  for(const s of slashes)s.life-=dt*5;
  slashes=slashes.filter(s=>s.life>0);
- for(const t of trail)t.life-=dt*4.2;
+ for(const t of trail)t.life-=dt*14;
  trail=trail.filter(t=>t.life>0);
  trailFlash=Math.max(0,trailFlash-dt);
  objs=objs.filter(o=>o.alive);
@@ -831,22 +840,28 @@ function draw(){
  for(let i=0;i<52;i++){const x=(i*149)%W,y=(i*83)%H;ctx.fillStyle=i%5===0?"#48e7ff":"#5e8dff";ctx.beginPath();ctx.arc(x,y,1.1,0,Math.PI*2);ctx.fill()}
  ctx.globalAlpha=1;
 
- // V3 energy trail behind mouse/touch movement
+ // V3 single clean energy trail — short, bright, and easy to read
  if(trail.length>1){
-   ctx.save();ctx.lineCap="round";ctx.lineJoin="round";
-   for(let i=1;i<trail.length;i++){
-     const a=trail[i-1],b=trail[i];
-     const alpha=Math.max(0,b.life)*.72;
-     ctx.globalAlpha=alpha;
-     ctx.strokeStyle=trailColor;ctx.lineWidth=2.2+6*b.life;ctx.shadowColor=trailColor;ctx.shadowBlur=10+18*b.life;
-     ctx.beginPath();ctx.moveTo(a.x,a.y);ctx.lineTo(b.x,b.y);ctx.stroke();
+   ctx.save();
+   ctx.lineCap="round";ctx.lineJoin="round";
+   ctx.globalAlpha=.98;
+   ctx.strokeStyle=trailColor;
+   ctx.lineWidth=4.2;
+   ctx.shadowColor=trailColor;ctx.shadowBlur=16;
+   ctx.beginPath();
+   for(let i=0;i<trail.length;i++){
+     const q=trail[i];
+     if(i===0) ctx.moveTo(q.x,q.y);
+     else {
+       const prev=trail[i-1];
+       const mx=(prev.x+q.x)/2,my=(prev.y+q.y)/2;
+       ctx.quadraticCurveTo(prev.x,prev.y,mx,my);
+     }
    }
+   const last=trail[trail.length-1];ctx.lineTo(last.x,last.y);
+   ctx.stroke();
+   ctx.globalAlpha=.18;ctx.strokeStyle="#ffffff";ctx.lineWidth=0.8;ctx.shadowBlur=3;ctx.stroke();
    ctx.restore();
- }
-
- for(const s of slashes){
-   ctx.save();ctx.globalAlpha=s.life;ctx.strokeStyle="#f5faff";ctx.lineWidth=6;ctx.lineCap="round";
-   ctx.shadowColor="#2f6bff";ctx.shadowBlur=18;ctx.beginPath();ctx.moveTo(s.a.x,s.a.y);ctx.lineTo(s.b.x,s.b.y);ctx.stroke();ctx.restore();
  }
  for(const p of parts){
    ctx.save();ctx.globalAlpha=p.life;ctx.fillStyle=p.bomb?"#5e8dff":"#edf6ff";
